@@ -7,6 +7,9 @@ import { formatLonLatHeight, toLonLatHeight } from '../../cesium/coords'
 
 const pickedObject = ref<string>('（未选中）')
 const pickPositionText = ref<string>('（未点击）')
+const globePickText = ref<string>('（未点击）')
+const clickDiffText = ref<string>('（未点击）')
+const hoverText = ref<string>('（移动鼠标到地表上）')
 const lastError = ref<string>('')
 const depthTestOn = ref<boolean>(true)
 const terrainOn = ref<boolean>(false)
@@ -16,6 +19,8 @@ const ionToken = (import.meta as any).env?.VITE_CESIUM_ION_TOKEN as string | und
 
 let handler: Cesium.ScreenSpaceEventHandler | undefined
 let lastViewer: Viewer | undefined
+let rafPending = false
+let lastMovePos: Cesium.Cartesian2 | undefined
 
 function describePicked(picked: unknown) {
   const p: any = picked
@@ -25,6 +30,26 @@ function describePicked(picked: unknown) {
   if (id?.id) return String(id.id)
   if (p?.primitive) return '（primitive）'
   return '（未选中）'
+}
+
+function globePickLonLatHeight(viewer: Viewer, pos: Cesium.Cartesian2) {
+  const ray = viewer.camera.getPickRay(pos)
+  if (!ray) return undefined
+  const world = viewer.scene.globe.pick(ray, viewer.scene)
+  if (!world) return undefined
+  return toLonLatHeight(world)
+}
+
+function pickPositionLonLatHeight(viewer: Viewer, pos: Cesium.Cartesian2) {
+  const world = viewer.scene.pickPosition(pos)
+  if (!world) return undefined
+  return toLonLatHeight(world)
+}
+
+function formatDiffMeters(a: Cesium.Cartesian3, b: Cesium.Cartesian3) {
+  const d = Cesium.Cartesian3.distance(a, b)
+  if (!Number.isFinite(d)) return '—'
+  return `${d.toFixed(2)}m`
 }
 
 function onReady(viewer: Viewer) {
@@ -61,15 +86,32 @@ function onReady(viewer: Viewer) {
     pickedObject.value = describePicked(picked)
     ;(viewer as any).selectedEntity = (picked as any)?.id
 
-    // 2) pickPosition：屏幕点 → 世界坐标 → 经度纬度高程
-    const world = viewer.scene.pickPosition(movement.position)
-    if (!world) {
-      pickPositionText.value = '（pickPosition 无结果：可能未开启深度/点到天空/或该位置无深度）'
-      return
-    }
-    const llh = toLonLatHeight(world)
-    pickPositionText.value = formatLonLatHeight(llh)
+    // 2) pickPosition：屏幕点 → 深度缓冲 → 世界坐标（点到模型/地形/地表都可能）
+    const llhPickPosition = pickPositionLonLatHeight(viewer, movement.position)
+    pickPositionText.value = llhPickPosition ? formatLonLatHeight(llhPickPosition) : '（无结果：点到天空/无深度/未启用深度拾取）'
+
+    // 3) globe.pick：屏幕点 → 射线 → 地表/地形交点（不依赖深度缓冲）
+    const llhGlobePick = globePickLonLatHeight(viewer, movement.position)
+    globePickText.value = llhGlobePick ? formatLonLatHeight(llhGlobePick) : '（无结果：可能点到天空）'
+
+    // 4) 二者差值：深度缓冲点 vs 地表点
+    const pposWorld = viewer.scene.pickPosition(movement.position)
+    const ray = viewer.camera.getPickRay(movement.position)
+    const globeWorld = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined
+    clickDiffText.value = pposWorld && globeWorld ? formatDiffMeters(pposWorld, globeWorld) : '—'
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+
+  handler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.MotionEvent) => {
+    lastMovePos = movement.endPosition
+    if (rafPending) return
+    rafPending = true
+    requestAnimationFrame(() => {
+      rafPending = false
+      if (!lastMovePos) return
+      const llh = globePickLonLatHeight(viewer, lastMovePos)
+      hoverText.value = llh ? formatLonLatHeight(llh) : '（天空/无地表交点）'
+    })
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
 }
 
 function toggleDepthTestAgainstTerrain() {
@@ -110,6 +152,8 @@ onBeforeUnmount(() => {
   handler?.destroy()
   handler = undefined
   lastViewer = undefined
+  lastMovePos = undefined
+  rafPending = false
 })
 </script>
 
@@ -130,6 +174,14 @@ onBeforeUnmount(() => {
           <span class="k">pickPosition</span>
           <span class="v mono">{{ pickPositionText }}</span>
         </div>
+        <div class="pill">
+          <span class="k">globe.pick</span>
+          <span class="v mono">{{ globePickText }}</span>
+        </div>
+        <div class="pill">
+          <span class="k">差值</span>
+          <span class="v mono">{{ clickDiffText }}</span>
+        </div>
       </div>
 
       <div class="row">
@@ -139,6 +191,10 @@ onBeforeUnmount(() => {
         <button class="btn" type="button" @click="toggleTerrain">
           世界地形：{{ terrainOn ? 'ON' : 'OFF' }}
         </button>
+        <div class="pill subtle">
+          <span class="k">鼠标实时</span>
+          <span class="v mono">{{ hoverText }}</span>
+        </div>
         <div class="hint">{{ terrainHint }}</div>
         <div v-if="lastError" class="err">{{ lastError }}</div>
       </div>
@@ -187,6 +243,9 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
   font-size: 12px;
+}
+.pill.subtle {
+  opacity: 0.92;
 }
 .k {
   opacity: 0.72;
