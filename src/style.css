@@ -1,0 +1,22 @@
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+/* 让 Cesium 的 canvas 能铺满容器 */
+.cesium-viewer-container,
+.cesium-viewer-container > .cesium-widget,
+.cesium-viewer-container .cesium-widget canvas {
+  width: 100%;
+  height: 100%;
+}
+
