@@ -16,6 +16,7 @@
         <RouterLink class="nav-item" to="/examples/entities-intro">02 Entity 入门</RouterLink>
         <RouterLink class="nav-item" to="/examples/coordinates-pick">03 坐标与拾取</RouterLink>
         <RouterLink class="nav-item" to="/examples/camera-control">04 相机控制</RouterLink>
+        <RouterLink class="nav-item" to="/examples/layers-system">05 图层体系</RouterLink>
       </nav>
     </aside>
 

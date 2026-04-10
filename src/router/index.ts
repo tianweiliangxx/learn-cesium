@@ -5,6 +5,7 @@ import BasicViewer from '../views/examples/BasicViewer.vue'
 import EntitiesIntro from '../views/examples/EntitiesIntro.vue'
 import CoordinatesPick from '../views/examples/CoordinatesPick.vue'
 import CameraControl from '../views/examples/CameraControl.vue'
+import LayersSystem from '../views/examples/LayersSystem.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -14,6 +15,7 @@ const router = createRouter({
     { path: '/examples/entities-intro', name: 'entities-intro', component: EntitiesIntro },
     { path: '/examples/coordinates-pick', name: 'coordinates-pick', component: CoordinatesPick },
     { path: '/examples/camera-control', name: 'camera-control', component: CameraControl },
+    { path: '/examples/layers-system', name: 'layers-system', component: LayersSystem },
   ],
 })
 
