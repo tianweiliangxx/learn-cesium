@@ -14,6 +14,15 @@ type UiLayer = {
 const urlTemplate = ref<string>('https://t{s}.tianditu.gov.cn/DataServer?T=${icon}_w&x={x}&y={y}&l={z}&tk=b3ae45031e93c3a273c73f6e6cd7841')
 const credit = ref<string>('© 天地图')
 
+// WMTS（手动参数）
+const wmtsUrl = ref<string>('https://t{s}.tianditu.gov.cn/cva_c/wmts?tk=b3ae45031e93c3a273c73f6e6cd7841')
+const wmtsLayer = ref<string>('img')
+const wmtsStyle = ref<string>('default')
+const wmtsFormat = ref<string>('tiles')
+const wmtsTileMatrixSet = ref<string>('w')
+const wmtsSubdomains = ref<string>('0,1,2,3,4,5,6,7')
+const wmtsHint = ref<string>('提示：WMTS 很容易遇到 CORS/参数不匹配问题；如果图层一直不出图，优先检查浏览器控制台报错。')
+
 const uiLayers = ref<UiLayer[]>([])
 /** 用 shallowRef 只追踪「是否已赋值」，不把 Cesium Viewer 做成深度响应式，避免性能与行为问题 */
 const viewerRef = shallowRef<Viewer | null>(null)
@@ -137,6 +146,46 @@ function addXyzLayer() {
   syncFromCesium()
 }
 
+function addWmtsLayer() {
+  const v = viewerRef.value
+  if (!v) return
+
+  const url = wmtsUrl.value.trim()
+  const layerName = wmtsLayer.value.trim()
+  const style = wmtsStyle.value.trim()
+  const format = wmtsFormat.value.trim()
+  const tileMatrixSetID = wmtsTileMatrixSet.value.trim()
+
+  if (!url || !layerName || !tileMatrixSetID) return
+
+  const subs = wmtsSubdomains.value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  const provider = new Cesium.WebMapTileServiceImageryProvider({
+    url,
+    layer: layerName,
+    style: style || 'default',
+    format: format || 'image/png',
+    tileMatrixSetID,
+    subdomains: subs.length ? subs : undefined,
+    credit: credit.value?.trim() || undefined,
+  })
+
+  const layer = new Cesium.ImageryLayer(provider, { alpha: 1, show: true })
+  v.imageryLayers.add(layer)
+
+  uiLayers.value.push({
+    id: crypto.randomUUID(),
+    name: `WMTS: ${layerName} (${tileMatrixSetID})`,
+    layer,
+    removable: true,
+  })
+
+  syncFromCesium()
+}
+
 function removeLayer(item: UiLayer) {
   const v = viewerRef.value
   if (!v) return
@@ -192,6 +241,38 @@ onBeforeUnmount(() => {
           <input v-model="credit" class="input" type="text" placeholder="图层版权信息" />
         </label>
         <button class="btn" type="button" :disabled="!canOperate" @click="addXyzLayer">添加 XYZ 图层</button>
+      </div>
+
+      <div class="section-title">WMTS（手动参数）</div>
+      <div class="row">
+        <label class="field grow">
+          <span class="k">URL</span>
+          <input v-model="wmtsUrl" class="input" type="text" placeholder="https://.../wmts?..." />
+        </label>
+        <label class="field">
+          <span class="k">layer</span>
+          <input v-model="wmtsLayer" class="input" type="text" placeholder="layer" />
+        </label>
+        <label class="field">
+          <span class="k">style</span>
+          <input v-model="wmtsStyle" class="input" type="text" placeholder="default" />
+        </label>
+        <label class="field">
+          <span class="k">format</span>
+          <input v-model="wmtsFormat" class="input" type="text" placeholder="image/png 或 tiles" />
+        </label>
+        <label class="field">
+          <span class="k">tileMatrixSet</span>
+          <input v-model="wmtsTileMatrixSet" class="input" type="text" placeholder="w / c / ..." />
+        </label>
+        <label class="field">
+          <span class="k">subdomains</span>
+          <input v-model="wmtsSubdomains" class="input" type="text" placeholder="0,1,2,3..." />
+        </label>
+        <button class="btn" type="button" :disabled="!canOperate" @click="addWmtsLayer">添加 WMTS 图层</button>
+      </div>
+      <div class="row hint-row">
+        <span class="hint subtle">{{ wmtsHint }}</span>
       </div>
 
       <div class="section-title">地形（Terrain）</div>
