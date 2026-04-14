@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Viewer } from 'cesium'
 import * as Cesium from 'cesium'
-import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import CesiumViewer from '../../components/CesiumViewer.vue'
 
 type UiLayer = {
@@ -19,6 +19,31 @@ const uiLayers = ref<UiLayer[]>([])
 const viewerRef = shallowRef<Viewer | null>(null)
 
 const canOperate = computed(() => !!viewerRef.value)
+
+// 地形（Terrain）
+const ionToken = (import.meta as any).env?.VITE_CESIUM_ION_TOKEN as string | undefined
+const terrainOn = ref<boolean>(false)
+const terrainBusy = ref<boolean>(false)
+const terrainHint = ref<string>(
+  '地形开关：椭球体地表不需要 token；World Terrain 需要配置 Ion Token（.env.local）。',
+)
+const terrainError = ref<string>('')
+/** 地形垂直夸张倍数，1 为真实比例；>1 拉高起伏便于观察 */
+const terrainExaggeration = ref<number>(1)
+
+function applyTerrainExaggeration() {
+  const v = viewerRef.value
+  if (!v) return
+  const ex = Math.max(0, terrainExaggeration.value)
+  // Cesium 1.140 使用 Scene.verticalExaggeration（不是 Globe.terrainExaggeration）
+  ;(v.scene as unknown as { verticalExaggeration: number; verticalExaggerationRelativeHeight: number })
+    .verticalExaggeration = ex
+  ;(v.scene as unknown as { verticalExaggeration: number; verticalExaggerationRelativeHeight: number })
+    .verticalExaggerationRelativeHeight = 0
+
+  // 若开启了 requestRenderMode，这里保证立即重绘；不开启也无副作用
+  v.scene.requestRender?.()
+}
 
 function syncFromCesium() {
   const v = viewerRef.value
@@ -39,6 +64,48 @@ function syncFromCesium() {
 
 function onReady(viewer: Viewer) {
   viewerRef.value = viewer
+  applyTerrainExaggeration()
+}
+
+async function toggleTerrain() {
+  const v = viewerRef.value
+  if (!v) return
+  if (terrainBusy.value) return
+  terrainError.value = ''
+
+  if (!terrainOn.value) {
+    if (!ionToken) {
+      terrainError.value = '未配置 Ion Token：请在根目录创建 .env.local，设置 VITE_CESIUM_ION_TOKEN=你的token，然后重启 dev。'
+      return
+    }
+    terrainBusy.value = true
+    try {
+      // 确保 token 生效（CesiumViewer 里也会设置，这里再兜底一次）
+      Cesium.Ion.defaultAccessToken = ionToken
+      v.terrainProvider = await Cesium.createWorldTerrainAsync()
+      terrainOn.value = true
+      terrainHint.value = '已开启 World Terrain：建议飞到山区并拉近地表观察起伏。'
+      applyTerrainExaggeration()
+    } catch (e: any) {
+      terrainError.value = `开启 World Terrain 失败：${e?.message ?? String(e)}`
+    } finally {
+      terrainBusy.value = false
+    }
+  } else {
+    v.terrainProvider = new Cesium.EllipsoidTerrainProvider()
+    terrainOn.value = false
+    terrainHint.value = '已切回椭球体地表：地形起伏将消失。'
+    applyTerrainExaggeration()
+  }
+}
+
+function flyToTerrainDemo() {
+  const v = viewerRef.value
+  if (!v) return
+  // 珠峰附近（便于观察地形起伏）
+  v.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(86.925, 27.9881, 14000),
+  })
 }
 
 function addXyzLayer() {
@@ -94,6 +161,8 @@ function moveDown(item: UiLayer) {
   syncFromCesium()
 }
 
+watch(terrainExaggeration, () => applyTerrainExaggeration())
+
 onBeforeUnmount(() => {
   viewerRef.value = null
   uiLayers.value = []
@@ -123,6 +192,33 @@ onBeforeUnmount(() => {
           <input v-model="credit" class="input" type="text" placeholder="图层版权信息" />
         </label>
         <button class="btn" type="button" :disabled="!canOperate" @click="addXyzLayer">添加 XYZ 图层</button>
+      </div>
+
+      <div class="section-title">地形（Terrain）</div>
+      <div class="row">
+        <button class="btn" type="button" :disabled="!canOperate || terrainBusy" @click="toggleTerrain">
+          World Terrain：{{ terrainOn ? 'ON' : 'OFF' }}
+        </button>
+        <button class="btn" type="button" :disabled="!canOperate" @click="flyToTerrainDemo">飞到山区示例点</button>
+        <label class="slider terrain-slider">
+          <span class="k">地形夸张</span>
+          <input
+            v-model.number="terrainExaggeration"
+            type="range"
+            min="0"
+            max="5"
+            step="0.1"
+            :disabled="!canOperate"
+          />
+          <span class="mono val">{{ terrainExaggeration.toFixed(1) }}×</span>
+        </label>
+        <div class="hint">{{ terrainHint }}</div>
+        <div v-if="terrainError" class="err">{{ terrainError }}</div>
+      </div>
+      <div class="row hint-row">
+        <span class="hint subtle">
+          <code>scene.verticalExaggeration</code>：影响场景的垂直夸张；椭球地表无起伏时效果不明显，请先开启 World Terrain。
+        </span>
       </div>
 
       <div class="section-title">已添加图层（底 → 顶）</div>
@@ -157,7 +253,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="viewer">
-      <CesiumViewer @ready="onReady" />
+      <CesiumViewer :ion-token="ionToken" @ready="onReady" />
     </div>
   </div>
 </template>
@@ -201,6 +297,21 @@ onBeforeUnmount(() => {
   font-size: 12px;
   opacity: 0.78;
   line-height: 1.35;
+}
+.hint-row {
+  margin-top: 0;
+  align-items: flex-start;
+}
+.hint.subtle {
+  opacity: 0.72;
+}
+.terrain-slider input[type='range'] {
+  width: 220px;
+}
+.err {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(248, 113, 113, 0.95);
 }
 .field {
   display: inline-flex;
